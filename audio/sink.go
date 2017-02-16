@@ -2,7 +2,6 @@ package audio
 
 import (
 	"log"
-	"math/rand"
 	"os"
 	"os/signal"
 	"syscall"
@@ -16,9 +15,16 @@ import (
 func Initialize(instance *handler.AudioCodecSink) {
 	portaudio.Initialize()
 	stream, err := portaudio.OpenDefaultStream(0, 1, 8000, 800, func(out []float32) {
-		log.Printf("Requested to fill %d * float32 buffer \n", len(out))
+		//log.Printf("Requested to fill %d * float32 buffer, I have %d samples in buffer \n", len(out), instance.Buffer.Size())
+		samples := instance.GetSamples(len(out))
 		for i := range out {
-			out[i] = instance.Volume * float32(rand.Float32())
+			if i < len(samples) {
+				out[i] = instance.Volume * samples[i]
+			} else {
+				// TODO: returning noise for easy debug
+				//out[i] = instance.Volume * float32(rand.Float32())
+				out[i] = 0
+			}
 		}
 	})
 	if err != nil {

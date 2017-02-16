@@ -10,14 +10,16 @@ import (
 	audiosink "github.com/yeyus/dmr-audio-sink/proto"
 	lane "gopkg.in/oleiade/lane.v1"
 
+	"github.com/pd0mz/go-dsd"
 	"golang.org/x/net/context"
 )
 
 // AudioCodecSink Data structure to keep service state variables
 type AudioCodecSink struct {
-	Buffer *lane.Deque
-	Volume float32
-	Stream *portaudio.Stream
+	Buffer      *lane.Deque
+	Volume      float32
+	Stream      *portaudio.Stream
+	DecoderAMBE *dsd.AMBE
 }
 
 // SetVolume handler for setting output volume
@@ -32,10 +34,6 @@ func (a *AudioCodecSink) SetVolume(ctx context.Context, req *audiosink.SetVolume
 // GetVolume handler for getting current output volume
 func (a *AudioCodecSink) GetVolume(ctx context.Context, req *audiosink.GetVolumeRequest, rsp *audiosink.VolumeResponse) error {
 	log.Printf("Received AudioCodecSink.GetVolume")
-	// TODO remove me
-	log.Printf("Dequeuing: %v", a.Buffer.Shift())
-	log.Printf("Buffer size: %v\n", a.Buffer.Size())
-	// TODO end
 	rsp.Volume = a.Volume
 	return nil
 }
@@ -59,10 +57,56 @@ func (a *AudioCodecSink) Decode(ctx context.Context, req *audiosink.DecodeReques
 		return errors.New(rsp.Error)
 	}
 
-	log.Printf("DecodedBits: %v\n", req.GetVoiceBits())
-	a.Buffer.Append(req.GetVoiceBits())
-	log.Printf("Buffer size: %v\n", a.Buffer.Size())
-	rsp.DecodedBits = uint32(len(req.GetVoiceBits()))
+	newSamples, err := a.decodeSamples(req.GetCodec(), req.GetVoiceBits())
+	if err != nil {
+		rsp.Error = err.Error()
+	}
+
+	log.Printf("new samples: %d, buffer size: %v\n", newSamples, a.Buffer.Size())
+	rsp.DecodedBits = uint32(newSamples)
 
 	return nil
+}
+
+// GetSamples will get you either maxSamples or maximum sample count available
+// in the samples buffer
+func (a *AudioCodecSink) GetSamples(maxSamples int) []float32 {
+	sampleCount := min(maxSamples, a.Buffer.Size())
+
+	out := make([]float32, sampleCount)
+	for i := 0; i < sampleCount; i++ {
+		out[i] = a.Buffer.Shift().(float32)
+	}
+
+	return out
+}
+
+func (a *AudioCodecSink) decodeSamples(codec audiosink.DecodeRequest_Codec, data []byte) (int, error) {
+	sampleCount := 0
+
+	if codec != audiosink.DecodeRequest_AMBE3600X2400 {
+		for i := 0; i < len(data); i = i + 216 {
+			decoded, err := a.DecoderAMBE.Decode(data[i : i+216])
+			if err != nil {
+				return sampleCount, err
+			}
+
+			for j := 0; j < len(decoded); j++ {
+				a.Buffer.Append(decoded[j])
+				sampleCount++
+			}
+		}
+	} else {
+		return 0, errors.New("Unsupported codec mode")
+	}
+
+	log.Printf("Inserted %d new samples", sampleCount)
+	return sampleCount, nil
+}
+
+func min(a, b int) int {
+	if a <= b {
+		return a
+	}
+	return b
 }

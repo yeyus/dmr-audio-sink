@@ -5,6 +5,7 @@ import (
 
 	"github.com/micro/go-micro"
 	"github.com/micro/go-micro/cmd"
+	"github.com/pd0mz/go-dsd"
 	audio "github.com/yeyus/dmr-audio-sink/audio"
 	"github.com/yeyus/dmr-audio-sink/handler"
 	audiosink "github.com/yeyus/dmr-audio-sink/proto"
@@ -21,9 +22,11 @@ func main() {
 
 	service.Init()
 	instance := handler.AudioCodecSink{
-		Buffer: lane.NewDeque(),
-		Volume: 1.0,
+		Buffer:      lane.NewDeque(),
+		Volume:      1.0,
+		DecoderAMBE: dsd.NewAMBE(64),
 	}
+	// TODO: DecoderAMBE.Close?
 
 	audio.Initialize(&instance)
 
